@@ -107,11 +107,31 @@ function PatientCheckin({ profile }: { profile: Profile }) {
       return;
     }
     setBusy(true);
-    const { error: invokeError } = await supabase.functions.invoke("submit-checkin", { body: { assignmentId: assignment.id, answers: payload } });
-    if (invokeError) setError(invokeError.message); else setSent(true); setBusy(false);
+    const controller = new AbortController();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const request = supabase.functions.invoke("submit-checkin", {
+        body: { assignmentId: assignment.id, answers: payload },
+        signal: controller.signal,
+      });
+      const timeout = new Promise<never>((_, reject) => {
+        deadline = setTimeout(() => {
+          controller.abort();
+          reject(new Error("Tempo de envio esgotado"));
+        }, 15000);
+      });
+      const { error: invokeError } = await Promise.race([request, timeout]);
+      if (invokeError) throw invokeError;
+      setSent(true);
+    } catch {
+      setError("Não foi possível confirmar o envio. Suas respostas continuam nesta tela. Verifique a conexão e tente novamente.");
+    } finally {
+      clearTimeout(deadline);
+      setBusy(false);
+    }
   }
   if (loading) return <Loading/>;
-  if (sent) return <div className="success"><span><Check size={34}/></span><i className="eyebrow">Check-in concluído</i><h1>Obrigado por compartilhar sua semana, {profile.full_name.split(" ")[0]}.</h1><p>Suas respostas já estão disponíveis para o Hericles e passaram a compor sua evolução.</p></div>;
+  if (sent) return <div className="success"><span><Check size={34}/></span><i className="eyebrow">Check-in concluído</i><h1>Obrigado por compartilhar sua semana, {profile.full_name.split(" ")[0]}.</h1><p>Suas respostas já estão disponíveis para eu avaliar.</p></div>;
   if (!assignment) return <div className="success"><span><CheckCircle2 size={34}/></span><i className="eyebrow">Tudo em dia</i><h1>Você não tem check-ins pendentes.</h1><p>Quando o próximo formulário for liberado, ele aparecerá aqui automaticamente.</p></div>;
   const screens: QuestionData[][] = [];
   const screenByKey = new Map<string, QuestionData[]>();
@@ -153,6 +173,26 @@ function PatientCheckin({ profile }: { profile: Profile }) {
   </div>;
 }
 
+const optionIcons: Record<string, string[]> = {
+  goalReview: ["✅", "🟡", "⏸️", "🔄"],
+  adherence: ["✅", "🟡", "🧩", "⏸️"],
+  barrier: ["⏰", "🍽️", "⚖️", "🧺", "🍴", "🍕", "💭", "🥗", "✍️"],
+  situations: ["➖", "📍", "📌", "🌀"],
+  reaction: ["🔁", "↩️", "🧩", "💭", "🌊", "✍️"],
+  satisfaction: ["😌", "🍽️", "🍪", "⚖️", "🔁", "✅"],
+  training: ["💪", "🟡", "⏸️", "📅", "🩹"],
+  trainingBarrier: ["⏰", "😴", "🔋", "🔄", "🩹", "🌡️", "📍", "✍️"],
+  sleep: ["😴", "🌙", "🥱"],
+  energy: ["⚡", "〰️", "🪫"],
+  stress: ["😌", "😐", "😣"],
+  impact: ["✔️", "➖", "❔"],
+  support: ["🗓️", "🍽️", "🧭", "💪", "🌙", "🥗", "✅", "✍️", "❔"],
+};
+
+function optionEmoji(question: QuestionData, index: number) {
+  return optionIcons[String(question.config.key)]?.[index] ?? ["🔹", "🔸", "🔺", "🔶"][index % 4];
+}
+
 function DynamicQuestion({ question, number, value, onChange }: { question: QuestionData; number: number; value: unknown; onChange: (value: unknown) => void }) {
   const config = question.config ?? {}, help = question.help_text ?? (question.required ? "Resposta obrigatória." : "Resposta opcional.");
   if (question.kind === "scale" && Number(config.min) === 0 && Number(config.max) === 10) {
@@ -176,15 +216,15 @@ function DynamicQuestion({ question, number, value, onChange }: { question: Ques
   if (config.multiple && Array.isArray(config.options)) {
     const selected = Array.isArray(value) ? value : [];
     return <Question n={String(number)} title={question.title} text="Marque todas as opções que se aplicam.">
-      <div className="checkinOptions">{config.options.map(String).map((option) => <label key={option}>
+      <div className="checkinOptions">{config.options.map(String).map((option, index) => <label key={option}>
         <input type="checkbox" checked={selected.includes(option)} onChange={(event) =>
           onChange(event.target.checked ? [...selected, option] : selected.filter((item) => item !== option))}/>
-        {option}
+        <span aria-hidden="true">{optionEmoji(question, index)}</span>{option}
       </label>)}</div>
     </Question>;
   }
   if (question.kind === "number") return <Question n={String(number)} title={question.title} text={help}><div className="weightField"><input type="number" step={String(config.step ?? "0.1")} inputMode="decimal" value={String(value ?? "")} onChange={(event) => onChange(event.target.value === "" ? undefined : event.target.valueAsNumber)} required={question.required}/><span>{String(config.unit ?? "")}</span></div></Question>;
-  if (question.kind === "single_choice") { const options = Array.isArray(config.options) ? config.options.map(String) : []; return <Question n={String(number)} title={question.title} text={help}><div className="feelings">{options.map((option) => <button type="button" key={option} className={value === option ? "selected" : ""} onClick={() => onChange(option)}><em>{option === "Muito bem" ? "🌟" : option === "Bem" ? "🙂" : option === "Regular" ? "😐" : "😔"}</em>{option}<CheckCircle2 size={17}/></button>)}</div>{question.required && <input className="srOnly" required value={String(value ?? "")} onChange={() => undefined}/>}</Question>; }
+  if (question.kind === "single_choice") { const options = Array.isArray(config.options) ? config.options.map(String) : []; return <Question n={String(number)} title={question.title} text={help}><div className="feelings">{options.map((option, index) => <button type="button" key={option} className={value === option ? "selected" : ""} onClick={() => onChange(option)}><em aria-hidden="true">{optionEmoji(question, index)}</em>{option}<CheckCircle2 size={17}/></button>)}</div>{question.required && <input className="srOnly" required value={String(value ?? "")} onChange={() => undefined}/>}</Question>; }
   if (question.kind === "scale") { const min = Number(config.min ?? 1), max = Number(config.max ?? 10), current = Number(value ?? config.default ?? min); return <Question n={String(number)} title={question.title} text={help}><div className="range"><input type="range" min={min} max={max} value={current} onChange={(event) => onChange(Number(event.target.value))} style={{ "--p": `${((current - min) / (max - min)) * 100}%` } as React.CSSProperties}/><output>{current}{String(config.suffix ?? "")}</output></div><div className="rangeLabels"><span>{String(config.min_label ?? "Pouco")}</span><span>{String(config.max_label ?? "Muito")}</span></div></Question>; }
   return <Question n={String(number)} title={question.title} text={help}><textarea value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} maxLength={500} required={question.required} placeholder="Escreva aqui..."/><small className="count">{String(value ?? "").length}/500</small></Question>;
 }
