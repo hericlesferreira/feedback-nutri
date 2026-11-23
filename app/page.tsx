@@ -131,7 +131,7 @@ function PatientCheckin({ profile }: { profile: Profile }) {
   }
 
   return <div className="page narrow">
-    <PageTitle eyebrow={`Pergunta ${step + 1} de ${screens.length}`} title={assignment.forms.title} text={assignment.forms.description ?? ""}/>
+    <p className="eyebrow checkinStep">Pergunta {step + 1} de {screens.length}</p>
     <progress className="checkinProgress" aria-label="Progresso do check-in" value={step + 1} max={screens.length}/>
     <form className="formCard" onSubmit={(event) => {
       event.preventDefault();
@@ -155,12 +155,22 @@ function PatientCheckin({ profile }: { profile: Profile }) {
 
 function DynamicQuestion({ question, number, value, onChange }: { question: QuestionData; number: number; value: unknown; onChange: (value: unknown) => void }) {
   const config = question.config ?? {}, help = question.help_text ?? (question.required ? "Resposta obrigatória." : "Resposta opcional.");
-  if (question.kind === "scale" && (config.key === "week" || config.key === "goalConfidence")) {
-    return <Question n={String(number)} title={question.title} text={`0 = ${config.min_label} · 10 = ${config.max_label}`}>
-      <select aria-label={question.title} value={String(value ?? "")} onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))} required={question.required}>
-        <option value="">Selecione uma nota</option>
-        {Array.from({ length: 11 }, (_, score) => <option key={score} value={score}>{score}</option>)}
-      </select>
+  if (question.kind === "scale" && Number(config.min) === 0 && Number(config.max) === 10) {
+    return <Question n={String(number)} title={question.title} text={help}>
+      <fieldset className="scoreScale">
+        <legend className="srOnly">{question.title}</legend>
+        <div className="scoreOptions">
+          {Array.from({ length: 11 }, (_, score) => <label key={score}>
+            <input className="srOnly" type="radio" name={question.id} value={score}
+              checked={value === score} required={question.required} onChange={() => onChange(score)}/>
+            <span>{score}</span>
+          </label>)}
+        </div>
+        <div className="scoreLabels">
+          <span>0 · {String(config.min_label ?? "Mínimo")}</span>
+          <span>10 · {String(config.max_label ?? "Máximo")}</span>
+        </div>
+      </fieldset>
     </Question>;
   }
   if (config.multiple && Array.isArray(config.options)) {
@@ -175,14 +185,6 @@ function DynamicQuestion({ question, number, value, onChange }: { question: Ques
   }
   if (question.kind === "number") return <Question n={String(number)} title={question.title} text={help}><div className="weightField"><input type="number" step={String(config.step ?? "0.1")} inputMode="decimal" value={String(value ?? "")} onChange={(event) => onChange(event.target.value === "" ? undefined : event.target.valueAsNumber)} required={question.required}/><span>{String(config.unit ?? "")}</span></div></Question>;
   if (question.kind === "single_choice") { const options = Array.isArray(config.options) ? config.options.map(String) : []; return <Question n={String(number)} title={question.title} text={help}><div className="feelings">{options.map((option) => <button type="button" key={option} className={value === option ? "selected" : ""} onClick={() => onChange(option)}><em>{option === "Muito bem" ? "🌟" : option === "Bem" ? "🙂" : option === "Regular" ? "😐" : "😔"}</em>{option}<CheckCircle2 size={17}/></button>)}</div>{question.required && <input className="srOnly" required value={String(value ?? "")} onChange={() => undefined}/>}</Question>; }
-  if (question.kind === "scale" && config.key === "week") {
-    return <Question n={String(number)} title={question.title} text="0 = Muito difícil · 10 = Excelente">
-      <select aria-label={question.title} value={String(value ?? "")} onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))} required>
-        <option value="">Selecione uma nota</option>
-        {Array.from({ length: 11 }, (_, score) => <option key={score} value={score}>{score}</option>)}
-      </select>
-    </Question>;
-  }
   if (question.kind === "scale") { const min = Number(config.min ?? 1), max = Number(config.max ?? 10), current = Number(value ?? config.default ?? min); return <Question n={String(number)} title={question.title} text={help}><div className="range"><input type="range" min={min} max={max} value={current} onChange={(event) => onChange(Number(event.target.value))} style={{ "--p": `${((current - min) / (max - min)) * 100}%` } as React.CSSProperties}/><output>{current}{String(config.suffix ?? "")}</output></div><div className="rangeLabels"><span>{String(config.min_label ?? "Pouco")}</span><span>{String(config.max_label ?? "Muito")}</span></div></Question>; }
   return <Question n={String(number)} title={question.title} text={help}><textarea value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} maxLength={500} required={question.required} placeholder="Escreva aqui..."/><small className="count">{String(value ?? "").length}/500</small></Question>;
 }
