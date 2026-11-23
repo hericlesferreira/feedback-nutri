@@ -15,7 +15,12 @@ type AssignmentData = { id: string; week_start: string; due_at: string; status: 
 
 function initials(name: string) { return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 function formatDate(value: string) { return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(new Date(value)); }
-function Brand() { return <div className="brand"><span className="brandMark"><Activity size={21} strokeWidth={2.5}/></span><div><b>Feedback</b><small>por Nutri Hericles</small></div></div>; }
+function Brand() {
+  return <div className="brand">
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    <img className="brandLogo" src="/logo-hericles.png" width={2000} height={500} alt="Nutri Hericles"/>
+  </div>;
+}
 
 function Login({ onSuccess }: { onSuccess: (userId: string) => Promise<void> }) {
   const [email, setEmail] = useState(""), [phone, setPhone] = useState(""), [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -27,6 +32,7 @@ function Login({ onSuccess }: { onSuccess: (userId: string) => Promise<void> }) 
   }
   return <main className="loginOnly">
     <form className="loginCard" aria-label="Login" onSubmit={submit}>
+      <header className="loginIdentity"><Brand/><p>Acompanhamento semanal</p></header>
       <label>E-mail<div className="field"><Mail size={19} aria-hidden="true"/><input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required/></div></label>
       <label>Senha<div className="field"><LockKeyhole size={19} aria-hidden="true"/><input type="password" autoComplete="current-password" value={phone} onChange={(event) => setPhone(event.target.value)} required/></div></label>
       {error && <p className="error" role="alert">{error}</p>}
