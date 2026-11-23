@@ -30,7 +30,7 @@ Deno.serve(async (request) => {
     const { data, error } = await admin.auth.admin.createUser({
       email,
       password: temporaryPassword,
-      email_confirm: false,
+      email_confirm: true,
       user_metadata: { full_name: fullName, phone, must_change_password: true },
     });
     if (error) throw error;
