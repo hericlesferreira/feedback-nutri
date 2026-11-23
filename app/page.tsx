@@ -6,7 +6,7 @@ import { changePassword, isSupabaseConfigured, signIn, signOut, supabase } from 
 import { weeklyQuestions } from "@/lib/weekly-form";
 
 type Role = "patient" | "admin";
-type View = "checkin" | "evolution" | "overview" | "forms";
+type View = "checkin" | "evolution" | "overview" | "forms" | "feedback";
 type Profile = { id: string; full_name: string; email: string; phone: string | null; role: Role; must_change_password: boolean; active: boolean };
 type QuestionKind = "number" | "single_choice" | "scale" | "long_text";
 type QuestionData = { id: string; title: string; help_text: string | null; kind: QuestionKind; required: boolean; position: number; config: Record<string, unknown> };
@@ -42,7 +42,7 @@ function PasswordDialog({ profile, onDone }: { profile: Profile; onDone: () => v
 
 function Shell({ profile, view, setView, logout, children }: { profile: Profile; view: View; setView: (view: View) => void; logout: () => void; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
-  const nav = profile.role === "admin" ? [["overview", "Visão geral", LayoutDashboard], ["forms", "Formulários", ClipboardCheck], ["evolution", "Evolução", BarChart3]] : [["checkin", "Check-in semanal", ClipboardCheck], ["evolution", "Minha evolução", BarChart3]];
+  const nav = profile.role === "admin" ? [["overview", "Visão geral", LayoutDashboard], ["feedback", "Retorno feedback", MessageCircle], ["forms", "Formulários", ClipboardCheck], ["evolution", "Evolução", BarChart3]] : [["checkin", "Check-in semanal", ClipboardCheck], ["evolution", "Minha evolução", BarChart3]];
   return <div className="shell"><header className="mobileHeader"><Brand/><button className="iconButton swap" onClick={() => setOpen(!open)} aria-label="Menu"><Menu className={!open ? "shown" : "hidden"}/><X className={open ? "shown" : "hidden"}/></button></header><aside className={`sidebar ${open ? "open" : ""}`}><Brand/><nav><span>{profile.role === "admin" ? "GESTÃO" : "SEU ACOMPANHAMENTO"}</span>{nav.map(([id, label, Icon]) => <button key={String(id)} className={view === id ? "active" : ""} onClick={() => { setView(id as View); setOpen(false); }}><Icon size={20} strokeWidth={view === id ? 2.5 : 2}/>{String(label)}</button>)}</nav><div className="sideBottom"><button><Settings size={20}/>Configurações</button><button onClick={logout}><LogOut size={20}/>Sair</button><div className="profile"><i>{initials(profile.full_name)}</i><div><b>{profile.full_name}</b><small>{profile.role === "admin" ? "Administrador" : "Paciente"}</small></div><MoreHorizontal size={18}/></div></div></aside><section className="content">{children}</section></div>;
 }
 
@@ -51,6 +51,7 @@ function Question({ n, title, text, children }: { n: string; title: string; text
 function Loading() { return <div className="loading"><Activity/><p>Carregando seu acompanhamento...</p></div>; }
 
 function PatientCheckin({ profile }: { profile: Profile }) {
+  const [step, setStep] = useState(0);
   const [previousGoal, setPreviousGoal] = useState("");
   const [assignment, setAssignment] = useState<AssignmentData | null>(null), [answers, setAnswers] = useState<Record<string, unknown>>({}), [loading, setLoading] = useState(true), [sent, setSent] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const load = useCallback(async () => {
@@ -112,7 +113,44 @@ function PatientCheckin({ profile }: { profile: Profile }) {
   if (loading) return <Loading/>;
   if (sent) return <div className="success"><span><Check size={34}/></span><i className="eyebrow">Check-in concluído</i><h1>Obrigado por compartilhar sua semana, {profile.full_name.split(" ")[0]}.</h1><p>Suas respostas já estão disponíveis para o Hericles e passaram a compor sua evolução.</p></div>;
   if (!assignment) return <div className="success"><span><CheckCircle2 size={34}/></span><i className="eyebrow">Tudo em dia</i><h1>Você não tem check-ins pendentes.</h1><p>Quando o próximo formulário for liberado, ele aparecerá aqui automaticamente.</p></div>;
-  return <div className="page narrow"><PageTitle eyebrow={`Semana de ${formatDate(assignment.week_start)}`} title={assignment.forms.title} text={assignment.forms.description ?? "Responda com tranquilidade e sinceridade."}/><form className="formCard" onSubmit={submit}>{visibleQuestions.map((question, index) => <DynamicQuestion key={question.id} question={question} number={index + 1} value={answers[question.id]} onChange={(value) => setAnswers((current) => ({ ...current, [question.id]: value }))}/>)}{error && <p className="formError">{error}</p>}<footer className="formFooter"><p><LockKeyhole size={16}/> Apenas você e seu nutricionista podem ver suas respostas.</p><button className="primary" disabled={busy}><Send size={18}/>{busy ? "Enviando..." : "Enviar check-in"}</button></footer></form></div>;
+  const screens: QuestionData[][] = [];
+  const screenByKey = new Map<string, QuestionData[]>();
+  for (const question of visibleQuestions) {
+    const rules = question.config.when as { key: string }[] | undefined;
+    const screen = rules?.map(({ key }) => screenByKey.get(key)).filter(Boolean).at(-1);
+    const group = screen ?? [];
+    if (!screen) screens.push(group);
+    group.push(question);
+    if (typeof question.config.key === "string") screenByKey.set(question.config.key, group);
+  }
+  const current = screens[step] ?? [];
+  function move(destination: number) {
+    setError("");
+    setStep(destination);
+    window.scrollTo(0, 0);
+  }
+
+  return <div className="page narrow">
+    <PageTitle eyebrow={`Pergunta ${step + 1} de ${screens.length}`} title={assignment.forms.title} text={assignment.forms.description ?? ""}/>
+    <progress className="checkinProgress" aria-label="Progresso do check-in" value={step + 1} max={screens.length}/>
+    <form className="formCard" onSubmit={(event) => {
+      event.preventDefault();
+      if (current.some(({ id, required }) => required && (Array.isArray(answers[id]) ? !(answers[id] as unknown[]).length : !String(answers[id] ?? "").trim()))) {
+        setError("Responda à pergunta para continuar.");
+        return;
+      }
+      if (step < screens.length - 1) move(step + 1);
+      else void submit(event);
+    }}>
+      {current.map((question) => <DynamicQuestion key={question.id} question={question} number={step + 1} value={answers[question.id]}
+        onChange={(value) => setAnswers((previous) => ({ ...previous, [question.id]: value }))}/>)}
+      {error && <p className="formError" role="alert">{error}</p>}
+      <footer className="formFooter">
+        {step > 0 && <button type="button" className="secondary" disabled={busy} onClick={() => move(step - 1)}>Voltar</button>}
+        <button className="primary" disabled={busy || !current.length}>{busy ? "Enviando..." : step < screens.length - 1 ? "Continuar" : "Enviar check-in"}</button>
+      </footer>
+    </form>
+  </div>;
 }
 
 function DynamicQuestion({ question, number, value, onChange }: { question: QuestionData; number: number; value: unknown; onChange: (value: unknown) => void }) {
@@ -160,12 +198,15 @@ function Evolution({ profile }: { profile: Profile }) {
 function Stat({ label, value, note, icon }: { label: string; value: string; note: string; icon: React.ReactNode }) { return <article><header><span>{label}</span><i>{icon}</i></header><b>{value}</b><p>{note}</p></article>; }
 type ReviewedResponse = {
   id: string;
+  feedback_at: string | null;
   submitted_at: string;
   assignments: { forms: { title: string } | null } | null;
   answers: { value: unknown; questions: { title: string; position: number } | null }[];
 };
 
 function ResponseReview() {
+  const [patientId, setPatientId] = useState("");
+  const [saving, setSaving] = useState(false);
   const [patients, setPatients] = useState<Profile[]>([]);
   const [responses, setResponses] = useState<ReviewedResponse[]>([]);
   const [selected, setSelected] = useState("");
@@ -181,13 +222,14 @@ function ResponseReview() {
   }, []);
 
   async function findResponses(patientId: string) {
+    setPatientId(patientId);
     setResponses([]);
     setSelected("");
     setStatus("");
     if (!supabase || !patientId) return;
     setBusy(true);
     const { data, error } = await supabase.from("responses")
-      .select("id,submitted_at,assignments(forms(title)),answers(value,questions(title,position))")
+      .select("id,submitted_at,feedback_at,assignments(forms(title)),answers(value,questions(title,position))")
       .eq("patient_id", patientId).order("submitted_at", { ascending: false });
     if (error) setStatus("Não foi possível carregar as respostas.");
     else {
@@ -200,12 +242,14 @@ function ResponseReview() {
   }
 
   const response = responses.find((row) => row.id === selected);
+  const patientIndex = patients.findIndex((patient) => patient.id === patientId);
+  const orderedAnswers = [...(response?.answers ?? [])].sort((a, b) =>
+    (a.questions?.position ?? 0) - (b.questions?.position ?? 0));
   const label = (row: ReviewedResponse) =>
     `${row.assignments?.forms?.title ?? "Check-in"} · ${new Intl.DateTimeFormat("pt-BR", {
       dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo",
     }).format(new Date(row.submitted_at))}`;
-  const answerText = response ? [label(response), "", ...[...response.answers]
-    .sort((a, b) => (a.questions?.position ?? 0) - (b.questions?.position ?? 0))
+  const answerText = response ? [label(response), "", ...orderedAnswers
     .map(({ questions, value }) => `${questions?.title ?? "Pergunta"}: ${String(value ?? "Sem resposta")}`)].join("\n") : "";
 
   async function copy() {
@@ -213,31 +257,51 @@ function ResponseReview() {
       await navigator.clipboard.writeText(answerText);
       setStatus("Respostas copiadas.");
     } catch {
-      setStatus("Não foi possível copiar automaticamente. Selecione o texto abaixo para copiar.");
+      setStatus("Não foi possível copiar automaticamente. Abra “Texto para copiar” e selecione o texto.");
     }
+  }
+
+  async function markFeedback(done: boolean) {
+    if (!response || !supabase) return;
+    setSaving(true);
+    const feedbackAt = done ? new Date().toISOString() : null;
+    const { error } = await supabase.from("responses").update({ feedback_at: feedbackAt })
+      .eq("id", response.id).select("id").single();
+    if (error) setStatus("Não foi possível salvar o retorno. Tente novamente.");
+    else {
+      setResponses((rows) => rows.map((row) => row.id === response.id ? { ...row, feedback_at: feedbackAt } : row));
+      setStatus(done ? "Retorno marcado como feito." : "Retorno desmarcado.");
+    }
+    setSaving(false);
   }
 
   return <section className="page narrow responseReview" aria-labelledby="response-review-title">
     <div className="formCard">
-      <h2 id="response-review-title">Consultar respostas</h2>
-      <label>Paciente<select defaultValue="" disabled={busy} onChange={(event) => void findResponses(event.target.value)}>
+      <h2 id="response-review-title">Retorno feedback</h2>
+      <label>Paciente<select value={patientId} disabled={busy || saving} onChange={(event) => void findResponses(event.target.value)}>
         <option value="">Selecione um paciente</option>
         {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.full_name} · {patient.email}</option>)}
       </select></label>
+      <div className="reviewNavigation">
+        <button type="button" className="secondary" disabled={busy || saving || patientIndex <= 0} onClick={() => void findResponses(patients[patientIndex - 1].id)}>Anterior</button>
+        <span>{patientIndex < 0 ? patients.length + " pacientes" : `${patientIndex + 1} de ${patients.length}`}</span>
+        <button type="button" className="secondary" disabled={busy || saving || patientIndex + 1 >= patients.length} onClick={() => void findResponses(patients[patientIndex + 1].id)}>{patientIndex < 0 ? "Começar" : "Próximo"}</button>
+      </div>
       {response && <>
-        <label>Check-in<select value={selected} onChange={(event) => { setSelected(event.target.value); setStatus(""); }}>
-          {responses.map((row) => <option key={row.id} value={row.id}>{label(row)}</option>)}
+        <label>Check-in<select disabled={saving} value={selected} onChange={(event) => { setSelected(event.target.value); setStatus(""); }}>
+          {responses.map((row) => <option key={row.id} value={row.id}>{label(row)} · {row.feedback_at ? "Retorno feito" : "Retorno pendente"}</option>)}
         </select></label>
-        <textarea aria-label="Respostas do check-in" readOnly value={answerText}/>
+        <label><input type="checkbox" checked={Boolean(response.feedback_at)} disabled={saving} onChange={(event) => void markFeedback(event.target.checked)}/> Retorno feito</label>
+        <dl className="reviewAnswers">{orderedAnswers.map(({ questions, value }, index) => <div key={index}>
+          <dt>{questions?.title ?? "Pergunta"}</dt>
+          <dd>{Array.isArray(value) ? value.join(" · ") : String(value ?? "Sem resposta")}</dd>
+        </div>)}</dl>
         <button type="button" className="primary" onClick={() => void copy()}>Copiar respostas</button>
+        <details><summary>Texto para copiar</summary><textarea aria-label="Respostas do check-in" readOnly value={answerText}/></details>
       </>}
       <p role="status">{busy ? "Carregando respostas..." : status}</p>
     </div>
   </section>;
-}
-
-function Admin({ goForms }: { goForms: () => void }) {
-  return <><AdminOverview goForms={goForms}/><ResponseReview/></>;
 }
 
 function AdminOverview({ goForms }: { goForms: () => void }) {
@@ -276,6 +340,6 @@ export default function Home() {
   const hydrate = useCallback(async (userId: string) => { if (!supabase) return; const { data, error: profileError } = await supabase.from("profiles").select("id,full_name,email,phone,role,must_change_password,active").eq("id", userId).single(); if (profileError || !data) { setError("Seu perfil ainda não foi configurado."); return; } const next = data as Profile; setProfile(next); setView(next.role === "admin" ? "overview" : "checkin"); }, []);
   useEffect(() => { async function start() { if (!supabase) { setBooting(false); return; } const { data } = await supabase.auth.getSession(); if (data.session?.user) await hydrate(data.session.user.id); setBooting(false); } void start(); }, [hydrate]);
   async function logout() { await signOut(); setProfile(null); setError(""); }
-  const content = useMemo(() => { if (!profile) return null; if (view === "evolution") return <Evolution profile={profile}/>; if (profile.role === "admin") return view === "forms" ? <Forms profile={profile}/> : <Admin goForms={() => setView("forms")}/>; return <PatientCheckin profile={profile}/>; }, [profile, view]);
+  const content = useMemo(() => { if (!profile) return null; if (view === "evolution") return <Evolution profile={profile}/>; if (profile.role === "admin") return view === "forms" ? <Forms profile={profile}/> : view === "feedback" ? <ResponseReview/> : <AdminOverview goForms={() => setView("forms")}/>; return <PatientCheckin profile={profile}/>; }, [profile, view]);
   if (booting) return <Loading/>; if (!profile) return <><Login onSuccess={hydrate}/>{error && <div className="globalError">{error}</div>}</>; return <Shell profile={profile} view={view} setView={setView} logout={logout}>{content}{profile.must_change_password && <PasswordDialog profile={profile} onDone={() => setProfile({ ...profile, must_change_password: false })}/>}</Shell>;
 }
