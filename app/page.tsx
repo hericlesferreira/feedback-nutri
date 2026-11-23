@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, BarChart3, Bell, Check, CheckCircle2, ClipboardCheck, Clock3, LayoutDashboard, LockKeyhole, LogOut, Mail, Menu, MessageCircle, Plus, Send, Settings, Sparkles, TrendingDown, Users, Weight, X } from "lucide-react";
-import { changePassword, isSupabaseConfigured, signIn, signOut, supabase } from "@/lib/supabase";
+import { Activity, BarChart3, Bell, Check, CheckCircle2, ClipboardCheck, Clock3, LayoutDashboard, LockKeyhole, LogOut, Mail, Menu, MessageCircle, Plus, Send, Settings, TrendingDown, Users, Weight, X } from "lucide-react";
+import { changePassword, signIn, signOut, supabase } from "@/lib/supabase";
 import { weeklyQuestions } from "@/lib/weekly-form";
 
 type Role = "patient" | "admin";
@@ -25,7 +25,14 @@ function Login({ onSuccess }: { onSuccess: (userId: string) => Promise<void> }) 
     if (result.error || !result.data?.user) { setError("E-mail ou senha temporária incorretos."); setBusy(false); return; }
     await onSuccess(result.data.user.id); setBusy(false);
   }
-  return <main className="loginPage"><section className="loginStory"><Brand/><div className="storyCopy"><span className="eyebrow light"><Sparkles size={16}/> Acompanhamento próximo, toda semana</span><h1>Seu progresso merece ser percebido.</h1><p>Responda seu check-in em poucos minutos e acompanhe, junto com seu nutricionista, cada pequena evolução.</p><div className="proof"><div><i>MS</i><i>AF</i><i>LC</i></div><p><b>Mais clareza no processo.</b><br/>Menos ansiedade com o resultado.</p></div></div><p className="privacy"><LockKeyhole size={16}/> Suas respostas são privadas e protegidas.</p></section><section className="loginPanel"><div className="mobileBrand"><Brand/></div><form className="loginCard" onSubmit={submit}><span className="miniMark"><Activity size={21}/></span><h2>Que bom ter você aqui</h2><p>Use os dados cadastrados pelo seu nutricionista.</p><label>E-mail<div className="field"><Mail size={19}/><input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required/></div></label><label>Senha<div className="field"><MessageCircle size={19}/><input type="password" autoComplete="current-password" value={phone} onChange={(event) => setPhone(event.target.value)} required/></div></label>{error && <p className="error">{error}</p>}<button className="primary full" disabled={busy}>{busy ? "Entrando..." : "Entrar na plataforma"}</button><p className="hint">Primeiro acesso? Use seu telefone com DDD, somente números.</p>{!isSupabaseConfigured && <span className="demoBadge">Configuração do Supabase ausente</span>}</form></section></main>;
+  return <main className="loginOnly">
+    <form className="loginCard" aria-label="Login" onSubmit={submit}>
+      <label>E-mail<div className="field"><Mail size={19} aria-hidden="true"/><input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required/></div></label>
+      <label>Senha<div className="field"><LockKeyhole size={19} aria-hidden="true"/><input type="password" autoComplete="current-password" value={phone} onChange={(event) => setPhone(event.target.value)} required/></div></label>
+      {error && <p className="error" role="alert">{error}</p>}
+      <button className="primary full" disabled={busy}>{busy ? "Entrando..." : "Entrar"}</button>
+    </form>
+  </main>;
 }
 
 function PasswordDialog({ profile, onDone, onClose }: { profile: Profile; onDone: () => void; onClose?: () => void }) {
