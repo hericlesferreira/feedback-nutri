@@ -24,8 +24,9 @@ Deno.serve(async (request) => {
 
     const { email, phone, fullName } = await request.json();
     if (!email || !phone || !fullName) return Response.json({ error: "Dados obrigatórios ausentes" }, { status: 400, headers: cors });
-    const temporaryPassword = String(phone).replace(/\D/g, "");
-    if (temporaryPassword.length < 10) return Response.json({ error: "Telefone inválido" }, { status: 400, headers: cors });
+    if (!/^\d{10,15}$/.test(String(phone))) return Response.json({ error: "Telefone inválido" }, { status: 400, headers: cors });
+    const random = crypto.getRandomValues(new Uint8Array(18));
+    const temporaryPassword = btoa(String.fromCharCode(...random)).replaceAll("+", "-").replaceAll("/", "_") + "!a1";
 
     const { data, error } = await admin.auth.admin.createUser({
       email,
@@ -34,7 +35,9 @@ Deno.serve(async (request) => {
       user_metadata: { full_name: fullName, phone, must_change_password: true },
     });
     if (error) throw error;
-    return Response.json({ id: data.user.id, email: data.user.email }, { status: 201, headers: cors });
+    return Response.json({ id: data.user.id, temporaryPassword }, {
+      status: 201, headers: { ...cors, "Cache-Control": "no-store" },
+    });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Erro inesperado" }, { status: 500, headers: cors });
   }

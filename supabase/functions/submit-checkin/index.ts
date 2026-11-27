@@ -27,6 +27,10 @@ Deno.serve(async (request) => {
       return Response.json({ error: "Sessão inválida" }, { status: 401, headers: cors });
     }
 
+    const { data: profile, error: profileError } = await caller.from("profiles").select("active,must_change_password").eq("id", user.id).single();
+    if (profileError || !profile?.active || profile.must_change_password) {
+      return Response.json({ error: "Acesso indisponível. Conclua a ativação da conta." }, { status: 403, headers: cors });
+    }
     const { assignmentId, answers } = await request.json();
     if (!assignmentId || !Array.isArray(answers)) {
       return Response.json({ error: "Respostas inválidas" }, { status: 400, headers: cors });
