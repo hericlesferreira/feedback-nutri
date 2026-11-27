@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, BarChart3, Bell, Check, CheckCircle2, ClipboardCheck, Clock3, LayoutDashboard, LockKeyhole, LogOut, Mail, Menu, MessageCircle, Plus, Send, Settings, TrendingDown, Users, Weight, X } from "lucide-react";
+import { Activity, BarChart3, Bell, Check, CheckCircle2, ClipboardCheck, Clock3, Eye, EyeOff, LayoutDashboard, LockKeyhole, LogOut, Mail, Menu, MessageCircle, Plus, Send, Settings, TrendingDown, Users, Weight, X } from "lucide-react";
 import { changePassword, signIn, signOut, supabase } from "@/lib/supabase";
 import { weeklyQuestions } from "@/lib/weekly-form";
 
@@ -23,18 +23,85 @@ function Brand() {
 }
 
 function Login({ onSuccess }: { onSuccess: (userId: string) => Promise<void> }) {
-  const [email, setEmail] = useState(""), [phone, setPhone] = useState(""), [busy, setBusy] = useState(false), [error, setError] = useState("");
-  async function submit(event: React.FormEvent) {
-    event.preventDefault(); setBusy(true); setError("");
-    const result = await signIn(email.trim(), phone);
-    if (result.error || !result.data?.user) { setError("E-mail ou senha temporária incorretos."); setBusy(false); return; }
-    await onSuccess(result.data.user.id); setBusy(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+
+    const emailInput = event.currentTarget.elements.namedItem("email") as HTMLInputElement;
+    const passwordInput = event.currentTarget.elements.namedItem("password") as HTMLInputElement;
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    const emailMessage = !email ? "Informe seu e-mail." : emailInput.validity.typeMismatch ? "Digite um e-mail válido." : "";
+    const passwordMessage = password ? "" : "Informe sua senha.";
+
+    setError("");
+    setEmailError(emailMessage);
+    setPasswordError(passwordMessage);
+    if (emailMessage || passwordMessage) {
+      (emailMessage ? emailInput : passwordInput).focus();
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const result = await signIn(email, password);
+      const status = result.error?.status;
+      if (status === 0 || (status !== undefined && status >= 500)) {
+        setError("Não foi possível entrar agora. Tente novamente.");
+      } else if (status === 429) {
+        setError("Muitas tentativas. Aguarde um momento antes de tentar novamente.");
+      } else if (result.error || !result.data?.user) {
+        setError("E-mail ou senha incorretos.");
+      } else {
+        await onSuccess(result.data.user.id);
+      }
+    } catch {
+      setError("Não foi possível entrar agora. Tente novamente.");
+    } finally {
+      setBusy(false);
+    }
   }
+
   return <main className="loginOnly">
-    <form className="loginCard" aria-label="Login" onSubmit={submit}>
+    <form className="loginCard" aria-label="Login" noValidate onSubmit={submit}>
       <header className="loginIdentity"><Brand/><p>Acompanhamento semanal</p></header>
-      <label>E-mail<div className="field"><Mail size={19} aria-hidden="true"/><input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required/></div></label>
-      <label>Senha<div className="field"><LockKeyhole size={19} aria-hidden="true"/><input type="password" autoComplete="current-password" value={phone} onChange={(event) => setPhone(event.target.value)} required/></div></label>
+      <label htmlFor="login-email">E-mail</label>
+      <div className="field">
+        <Mail size={19} strokeWidth={2.5} aria-hidden="true"/>
+        <input id="login-email" name="email" type="email" inputMode="email" autoComplete="username"
+          autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="next" required
+          aria-invalid={!!emailError} aria-describedby={emailError ? "login-email-error" : undefined}
+          onInput={() => { setEmailError(""); setError(""); }}
+          onKeyDown={(event) => {
+            const input = event.currentTarget;
+            if (event.key === "Enter" && !event.nativeEvent.isComposing && input.validity.valid) {
+              event.preventDefault();
+              (input.form?.elements.namedItem("password") as HTMLInputElement | null)?.focus();
+            }
+          }}/>
+      </div>
+      {emailError && <p className="error loginFieldError" id="login-email-error" role="alert">{emailError}</p>}
+      <label htmlFor="login-password">Senha</label>
+      <div className="field loginPasswordField">
+        <LockKeyhole size={19} strokeWidth={2.5} aria-hidden="true"/>
+        <input id="login-password" name="password" type={showPassword ? "text" : "password"} inputMode="text"
+          autoComplete="current-password" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+          enterKeyHint="go" required aria-invalid={!!passwordError}
+          aria-describedby={passwordError ? "login-password-error" : undefined}
+          onInput={() => { setPasswordError(""); setError(""); }}/>
+        <button type="button" className="loginPasswordToggle" aria-controls="login-password"
+          aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"} onClick={() => setShowPassword(!showPassword)}>
+          <Eye size={20} strokeWidth={2} aria-hidden="true" className={showPassword ? "hidden" : "shown"}/>
+          <EyeOff size={20} strokeWidth={2} aria-hidden="true" className={showPassword ? "shown" : "hidden"}/>
+        </button>
+      </div>
+      {passwordError && <p className="error loginFieldError" id="login-password-error" role="alert">{passwordError}</p>}
       {error && <p className="error" role="alert">{error}</p>}
       <button className="primary full" disabled={busy}>{busy ? "Entrando..." : "Entrar"}</button>
     </form>
@@ -247,7 +314,7 @@ function Evolution({ profile }: { profile: Profile }) {
   const [weights, setWeights] = useState<{ date: string; value: number }[]>([]), [loading, setLoading] = useState(true);
   useEffect(() => { async function load() { if (!supabase) return setLoading(false); const { data } = await supabase.from("responses").select("submitted_at,answers(value,questions(title,kind,config))").eq("patient_id", profile.id).order("submitted_at", { ascending: true }); const result: { date: string; value: number }[] = []; for (const response of data ?? []) for (const answer of (response.answers as unknown as Array<{ value: unknown; questions: { title: string; kind: string; config: Record<string, unknown> } }> ?? [])) { const question = answer.questions; if (question?.config?.metric === "weight" || /peso/i.test(question?.title ?? "")) result.push({ date: response.submitted_at, value: Number(answer.value) }); } setWeights(result.filter((point) => Number.isFinite(point.value)).slice(-8)); setLoading(false); } void load(); }, [profile.id]);
   if (loading) return <Loading/>; const values = weights.map((point) => point.value), min = values.length ? Math.min(...values) : 0, max = values.length ? Math.max(...values) : 1, range = Math.max(max - min, 1); const points = weights.map((point, index) => `${45 + index * (510 / Math.max(weights.length - 1, 1))},${40 + ((max - point.value) / range) * 145}`).join(" "), change = values.length > 1 ? values.at(-1)! - values[0] : 0;
-  return <div className="page"><PageTitle eyebrow="Minha jornada" title="Sua evolução" text="O progresso fica mais claro quando olhamos para o caminho completo."/><div className="metrics"><Metric icon={<Weight/>} label="Peso atual" value={values.length ? values.at(-1)!.toFixed(1).replace(".", ",") : "—"} unit="kg" note={values.length > 1 ? `${Math.abs(change).toFixed(1).replace(".", ",")} kg no período` : "Aguardando respostas"}/><Metric icon={<ClipboardCheck/>} label="Registros de peso" value={String(values.length)} unit="semanas" note="Histórico protegido"/><Metric icon={<Activity/>} label="Tendência" value={change < 0 ? "Redução" : change > 0 ? "Aumento" : "Estável"} unit="" note="Baseada nos check-ins"/></div><article className="chartCard"><header><div><span>EVOLUÇÃO DO PESO</span><h2>Consistência que aparece</h2></div><p><i/>Peso em kg</p></header>{weights.length ? <div className="chart"><svg viewBox="0 0 600 245" role="img" aria-label="Gráfico de evolução do peso">{[45, 95, 145, 195].map((y) => <line key={y} x1="45" x2="555" y1={y} y2={y}/>)}<polyline points={points}/>{weights.map((point, index) => { const x = 45 + index * (510 / Math.max(weights.length - 1, 1)), y = 40 + ((max - point.value) / range) * 145; return <g key={`${point.date}-${index}`}><circle cx={x} cy={y} r="5"/><text x={x} y="220" textAnchor="middle">{formatDate(point.date)}</text><text className="valueLabel" x={x} y={y - 13} textAnchor="middle">{point.value.toFixed(1)}</text></g>; })}</svg></div> : <div className="emptyState">O gráfico aparecerá depois do primeiro check-in com peso.</div>}</article></div>;
+  return <div className="page"><PageTitle eyebrow="Minha jornada" title="Sua evolução" text="O progresso fica mais claro quando olhamos para o caminho completo."/><div className="metrics evolutionMetrics"><Metric icon={<Weight/>} label="Peso atual" value={values.length ? values.at(-1)!.toFixed(1).replace(".", ",") : "—"} unit="kg" note={values.length > 1 ? `${Math.abs(change).toFixed(1).replace(".", ",")} kg no período` : "Aguardando respostas"}/><Metric icon={<ClipboardCheck/>} label="Registros de peso" value={String(values.length)} unit="semanas" note="Histórico protegido"/></div><article className="chartCard"><header><div><span>EVOLUÇÃO DO PESO</span><h2>Consistência que aparece</h2></div><p><i/>Peso em kg</p></header>{weights.length ? <div className="chart"><svg viewBox="0 0 600 245" role="img" aria-label="Gráfico de evolução do peso">{[45, 95, 145, 195].map((y) => <line key={y} x1="45" x2="555" y1={y} y2={y}/>)}<polyline points={points}/>{weights.map((point, index) => { const x = 45 + index * (510 / Math.max(weights.length - 1, 1)), y = 40 + ((max - point.value) / range) * 145; return <g key={`${point.date}-${index}`}><circle cx={x} cy={y} r="5"/><text x={x} y="220" textAnchor="middle">{formatDate(point.date)}</text><text className="valueLabel" x={x} y={y - 13} textAnchor="middle">{point.value.toFixed(1)}</text></g>; })}</svg></div> : <div className="emptyState">O gráfico aparecerá depois do primeiro check-in com peso.</div>}</article></div>;
 }
 
 function Stat({ label, value, note, icon }: { label: string; value: string; note: string; icon: React.ReactNode }) { return <article><header><span>{label}</span><i>{icon}</i></header><b>{value}</b><p>{note}</p></article>; }
@@ -452,9 +519,9 @@ function ManagePatients() {
 function AdminOverview({ goForms }: { goForms: () => void }) {
   const [search, setSearch] = useState("");
   const [patients, setPatients] = useState<Profile[]>([]), [assignments, setAssignments] = useState<Array<{ patient_id: string; status: string; completed_at: string | null }>>([]), [showPatient, setShowPatient] = useState(false), [refresh, setRefresh] = useState(0);
-  useEffect(() => { async function load() { if (!supabase) return; const [{ data: profiles }, { data: weekly }] = await Promise.all([supabase.from("profiles").select("id,full_name,email,phone,role,must_change_password,active").eq("role", "patient").order("full_name"), supabase.from("assignments").select("patient_id,status,completed_at").order("created_at", { ascending: false })]); setPatients((profiles ?? []) as Profile[]); const latest = new Map<string, { patient_id: string; status: string; completed_at: string | null }>(); for (const item of weekly ?? []) if (!latest.has(item.patient_id)) latest.set(item.patient_id, item); setAssignments([...latest.values()]); } void load(); }, [refresh]);
+  useEffect(() => { async function load() { if (!supabase) return; const [{ data: profiles }, { data: weekly }] = await Promise.all([supabase.from("profiles").select("id,full_name,email,phone,role,must_change_password,active").eq("role", "patient").eq("active", true).order("full_name"), supabase.from("assignments").select("patient_id,status,completed_at").order("created_at", { ascending: false })]); const activePatients = (profiles ?? []) as Profile[]; const activePatientIds = new Set(activePatients.map((patient) => patient.id)); setPatients(activePatients); const latest = new Map<string, { patient_id: string; status: string; completed_at: string | null }>(); for (const item of weekly ?? []) if (activePatientIds.has(item.patient_id) && !latest.has(item.patient_id)) latest.set(item.patient_id, item); setAssignments([...latest.values()]); } void load(); }, [refresh]);
   const completed = assignments.filter((item) => item.status === "completed").length, rate = assignments.length ? Math.round((completed / assignments.length) * 100) : 0;
-  return <div className="page admin"><header className="adminTop"><div><span>{new Intl.DateTimeFormat("pt-BR", { dateStyle: "full" }).format(new Date())}</span><h1>Bom dia, Hericles</h1></div><div><button className="primary" onClick={() => setShowPatient(true)}><Plus size={18}/>Novo paciente</button></div></header><section className="adminHero"><div><span className="eyebrow light">Check-in mais recente</span><h2>{completed} de {assignments.length} pacientes já responderam</h2><p>O painel passa a refletir os envios reais assim que os formulários são liberados.</p><button onClick={goForms}><Send size={17}/>Gerenciar envio</button></div><div className="circle"><b>{rate}%</b><small>respondido</small></div></section><div className="stats"><Stat label="Pacientes ativos" value={String(patients.filter((patient) => patient.active).length)} note="cadastrados" icon={<Users/>}/><Stat label="Respostas recentes" value={String(completed)} note={`de ${assignments.length} envios`} icon={<ClipboardCheck/>}/><Stat label="Taxa de resposta" value={`${rate}%`} note="último formulário" icon={<BarChart3/>}/><Stat label="Pendentes" value={String(Math.max(assignments.length - completed, 0))} note="aguardando check-in" icon={<Bell/>}/></div><article className="tableCard"><header><div><h2>Pacientes</h2><p>Cadastros e situação do check-in mais recente.</p></div><label><input aria-label="Buscar paciente" placeholder="Buscar paciente" value={search} onChange={(event) => setSearch(event.target.value)}/></label></header><div className="table labels"><span>Paciente</span><span>Status</span><span>Contato</span><span/></div>{patients.filter(({ full_name, email }) => `${full_name} ${email}`.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().includes(search.trim().normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase())).map((patient, index) => { const assignment = assignments.find((item) => item.patient_id === patient.id), done = assignment?.status === "completed"; return <div className="table" key={patient.id}><div className="patient"><i className={`tone${index % 5}`}>{initials(patient.full_name)}</i><p><b>{patient.full_name}</b><small>{patient.email}</small></p></div><span className={`pill ${done ? "done" : "pending"}`}>{done && <Check size={13}/>} {done ? "Respondido" : assignment ? "Pendente" : "Sem envio"}</span><span className="time">{patient.phone ?? "—"}</span></div>; })}</article>{showPatient && <PatientDialog onClose={() => setShowPatient(false)} onCreated={() => { setRefresh((value) => value + 1); }}/>}</div>;
+  return <div className="page admin"><header className="adminTop"><div><span>{new Intl.DateTimeFormat("pt-BR", { dateStyle: "full" }).format(new Date())}</span><h1>Bom dia, Hericles</h1></div><div><button className="primary" onClick={() => setShowPatient(true)}><Plus size={18}/>Novo paciente</button></div></header><section className="adminHero"><div><span className="eyebrow light">Check-in mais recente</span><h2>{completed} de {assignments.length} pacientes já responderam</h2><p>O painel passa a refletir os envios reais assim que os formulários são liberados.</p><button onClick={goForms}><Send size={17}/>Gerenciar envio</button></div><div className="circle"><b>{rate}%</b><small>respondido</small></div></section><div className="stats"><Stat label="Pacientes ativos" value={String(patients.length)} note="cadastrados" icon={<Users/>}/><Stat label="Respostas recentes" value={String(completed)} note={`de ${assignments.length} envios`} icon={<ClipboardCheck/>}/><Stat label="Taxa de resposta" value={`${rate}%`} note="último formulário" icon={<BarChart3/>}/><Stat label="Pendentes" value={String(Math.max(assignments.length - completed, 0))} note="aguardando check-in" icon={<Bell/>}/></div><article className="tableCard"><header><div><h2>Pacientes ativos</h2><p>Cadastros ativos e situação do check-in mais recente.</p></div><label><input aria-label="Buscar paciente ativo" placeholder="Buscar paciente" value={search} onChange={(event) => setSearch(event.target.value)}/></label></header><div className="table labels"><span>Paciente</span><span>Status</span><span>Contato</span><span/></div>{patients.filter(({ full_name, email }) => `${full_name} ${email}`.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().includes(search.trim().normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase())).map((patient, index) => { const assignment = assignments.find((item) => item.patient_id === patient.id), done = assignment?.status === "completed"; return <div className="table" key={patient.id}><div className="patient"><i className={`tone${index % 5}`}>{initials(patient.full_name)}</i><p><b>{patient.full_name}</b><small>{patient.email}</small></p></div><span className={`pill ${done ? "done" : "pending"}`}>{done && <Check size={13}/>} {done ? "Respondido" : assignment ? "Pendente" : "Sem envio"}</span><span className="time">{patient.phone ?? "—"}</span></div>; })}</article>{showPatient && <PatientDialog onClose={() => setShowPatient(false)} onCreated={() => { setRefresh((value) => value + 1); }}/>}</div>;
 }
 
 function PatientDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
@@ -478,7 +545,7 @@ function Forms({ profile }: { profile: Profile }) {
     const questions = weeklyQuestions;
     const { error: questionError } = await supabase.from("questions").insert(questions.map((question) => ({ ...question, form_id: form.id }))); setMessage(questionError ? questionError.message : "Formulário criado com sucesso."); await load(); setBusy(false);
   }
-  async function sendNow(formId: string) { if (!supabase || !patients.length) return setMessage("Cadastre pelo menos um paciente ativo antes do envio."); setBusy(true); setMessage(""); const now = new Date(), day = now.getDay(), monday = new Date(now); monday.setDate(now.getDate() - ((day + 6) % 7)); monday.setHours(0, 0, 0, 0); const due = new Date(monday); due.setDate(monday.getDate() + 6); due.setHours(23, 59, 59, 999); const rows = patients.map((patient) => ({ form_id: formId, patient_id: patient.id, week_start: monday.toISOString().slice(0, 10), due_at: due.toISOString(), sent_at: new Date().toISOString() })); const { error } = await supabase.from("assignments").upsert(rows, { onConflict: "patient_id,form_id,week_start", ignoreDuplicates: true }); setMessage(error ? error.message : `Formulário liberado para ${patients.length} paciente${patients.length === 1 ? "" : "s"}.`); setBusy(false); }
+  async function sendNow(formId: string) { if (!supabase) return; setBusy(true); setMessage(""); const { data: activePatients, error: patientError } = await supabase.from("profiles").select("id,full_name,email,phone,role,must_change_password,active").eq("role", "patient").eq("active", true).order("full_name"); if (patientError) { setMessage("Não foi possível conferir os pacientes ativos."); setBusy(false); return; } const currentPatients = (activePatients ?? []) as Profile[]; setPatients(currentPatients); if (!currentPatients.length) { setMessage("Cadastre pelo menos um paciente ativo antes do envio."); setBusy(false); return; } const now = new Date(), day = now.getDay(), monday = new Date(now); monday.setDate(now.getDate() - ((day + 6) % 7)); monday.setHours(0, 0, 0, 0); const due = new Date(monday); due.setDate(monday.getDate() + 6); due.setHours(23, 59, 59, 999); const rows = currentPatients.map((patient) => ({ form_id: formId, patient_id: patient.id, week_start: monday.toISOString().slice(0, 10), due_at: due.toISOString(), sent_at: new Date().toISOString() })); const { error } = await supabase.from("assignments").upsert(rows, { onConflict: "patient_id,form_id,week_start", ignoreDuplicates: true }); setMessage(error ? error.message : `Formulário liberado para ${currentPatients.length} paciente${currentPatients.length === 1 ? "" : "s"}.`); setBusy(false); }
   const active = forms[0];
   return <div className="page"><PageTitle eyebrow="Gestão de formulários" title="Check-in semanal" text="Crie as perguntas e libere o formulário para seus pacientes." action={active ? <button className="primary" disabled={busy} onClick={() => sendNow(active.id)}><Send size={18}/>Enviar agora</button> : <button className="primary" disabled={busy} onClick={createStarter}><Plus size={18}/>Criar formulário inicial</button>}/>{message && <div className="notice"><CheckCircle2/>{message}</div>}<div className="builder">{active ? <article className="formBuilder"><header><div><span>FORMULÁRIO ATIVO</span><h2>{active.title}</h2></div><i className="pill done"><Check size={13}/>Ativo</i></header>{active.questions.map((question, index) => <div className="builderRow" key={question.id}><span>{index + 1}</span><p><b>{question.title}</b><small>{question.kind === "number" ? "Resposta numérica" : question.kind === "single_choice" ? "Escolha única" : question.kind === "scale" ? "Escala" : "Texto longo"}{question.required ? " · obrigatória" : " · opcional"}</small></p></div>)}</article> : <article className="formBuilder emptyBuilder"><ClipboardCheck/><h2>Nenhum formulário criado</h2><p>Use o botão acima para criar o modelo inicial do check-in semanal.</p></article>}<aside className="schedule"><span><Clock3/></span><h2>Envio semanal</h2><p>O botão “Enviar agora” libera o formulário da semana para todos os pacientes ativos.</p><dl><div><dt>Dia recomendado</dt><dd>Sexta-feira</dd></div><div><dt>Pacientes ativos</dt><dd>{patients.length}</dd></div></dl><small>A automação por e-mail ou WhatsApp pode ser conectada em uma próxima etapa.</small></aside></div></div>;
 }

@@ -9,6 +9,7 @@
 .modalCard[aria-label="Gerenciar paciente"]{max-height:85dvh;overflow:auto}
 .modalCard[aria-label="Gerenciar paciente"] .secondary{margin-top:8px}
 
+@media(min-width:651px){.metrics.evolutionMetrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 .loginOnly{min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--surface)}
 .loginIdentity{margin-bottom:30px}
@@ -16,6 +17,18 @@
 .brandLogo{display:block;width:100%;max-width:185px;height:auto;object-fit:contain}
 .loginIdentity .brandLogo{max-width:280px}
 .loginIdentity p{margin:8px 0 0;color:var(--muted);font-size:.92rem}
+.loginOnly .field input{align-self:stretch;min-width:0;font-size:1rem}
+.loginOnly .field>svg{flex:none}
+.loginOnly .field:has(input[aria-invalid="true"]){border-color:oklch(50% .18 25)}
+.loginCard .loginFieldError{text-align:left}
+.loginOnly .loginPasswordField{--field-radius:15px;--toggle-inset:4px;border-radius:var(--field-radius);padding-right:var(--toggle-inset)}
+.loginPasswordToggle{flex:0 0 44px;min-height:44px;display:grid;place-items:center;padding:0;border:0;border-radius:calc(var(--field-radius) - var(--toggle-inset));background:transparent;color:var(--dark);cursor:pointer}
+.loginPasswordToggle:focus-visible{outline:2px solid var(--green);outline-offset:-2px}
+.loginPasswordToggle svg{grid-area:1/1;transition:opacity 200ms,filter 200ms}
+.loginPasswordToggle .hidden{display:block;opacity:0;filter:blur(4px)}
+.loginPasswordToggle .shown{opacity:1;filter:blur(0)}
+@media(prefers-reduced-motion:reduce){.loginPasswordToggle svg{transition:none}}
+@media(max-width:650px){.loginOnly{padding-inline:clamp(16px,5vw,24px)}}
 
 .checkinStep{margin:0 0 8px}
 .scoreScale{min-width:0;margin:18px 0 0;padding:0;border:0}
