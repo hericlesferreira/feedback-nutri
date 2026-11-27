@@ -36,6 +36,12 @@ Deno.serve(async (request) => {
       return Response.json({ error: "Respostas inválidas" }, { status: 400, headers: cors });
     }
 
+    const { data: assignment, error: assignmentError } = await caller.from("assignments")
+      .select("id").eq("id", assignmentId).eq("patient_id", user.id).maybeSingle();
+    if (assignmentError || !assignment) {
+      return Response.json({ error: "Check-in indisponível para esta sessão." }, { status: 403, headers: cors });
+    }
+
     const { data, error } = await service.rpc("submit_checkin_as_service", {
       p_user_id: user.id,
       p_assignment_id: assignmentId,

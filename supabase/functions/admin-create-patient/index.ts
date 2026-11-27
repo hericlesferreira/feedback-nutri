@@ -5,6 +5,16 @@ const cors = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function generateTemporaryPassword(): string {
+  const combinations = 1_000_000;
+  const uniformLimit = Math.floor(2 ** 32 / combinations) * combinations;
+  const sample = new Uint32Array(1);
+  do {
+    crypto.getRandomValues(sample);
+  } while (sample[0] >= uniformLimit);
+  return String(sample[0] % combinations).padStart(6, "0");
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
@@ -25,8 +35,7 @@ Deno.serve(async (request) => {
     const { email, phone, fullName } = await request.json();
     if (!email || !phone || !fullName) return Response.json({ error: "Dados obrigatórios ausentes" }, { status: 400, headers: cors });
     if (!/^\d{10,15}$/.test(String(phone))) return Response.json({ error: "Telefone inválido" }, { status: 400, headers: cors });
-    const random = crypto.getRandomValues(new Uint8Array(18));
-    const temporaryPassword = btoa(String.fromCharCode(...random)).replaceAll("+", "-").replaceAll("/", "_") + "!a1";
+    const temporaryPassword = generateTemporaryPassword();
 
     const { data, error } = await admin.auth.admin.createUser({
       email,

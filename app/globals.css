@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+.patientManageList{margin-top:16px}
+.patientManageList>p,.patientManageRow{padding:14px 18px}
+.patientManageRow{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.patientManageRow+.patientManageRow{border-top:1px solid var(--border)}
+.patientManageRow>div{min-width:0;overflow-wrap:anywhere}
+.patientManageRow>div>div{color:var(--muted);font-size:.84rem}
+.modalCard[aria-label="Gerenciar paciente"]{max-height:85dvh;overflow:auto}
+.modalCard[aria-label="Gerenciar paciente"] .secondary{margin-top:8px}
+
+
 .loginOnly{min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--surface)}
 .loginIdentity{margin-bottom:30px}
 .loginIdentity .brand{justify-content:center}

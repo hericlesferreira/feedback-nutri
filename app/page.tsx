@@ -6,7 +6,7 @@ import { changePassword, signIn, signOut, supabase } from "@/lib/supabase";
 import { weeklyQuestions } from "@/lib/weekly-form";
 
 type Role = "patient" | "admin";
-type View = "checkin" | "evolution" | "overview" | "forms" | "feedback";
+type View = "checkin" | "evolution" | "overview" | "forms" | "feedback" | "patients";
 type Profile = { id: string; full_name: string; email: string; phone: string | null; role: Role; must_change_password: boolean; active: boolean };
 type QuestionKind = "number" | "single_choice" | "scale" | "long_text";
 type QuestionData = { id: string; title: string; help_text: string | null; kind: QuestionKind; required: boolean; position: number; config: Record<string, unknown> };
@@ -55,7 +55,7 @@ function PasswordDialog({ profile, onDone, onClose }: { profile: Profile; onDone
 
 function Shell({ profile, view, setView, logout, openPassword, children }: { profile: Profile; view: View; setView: (view: View) => void; logout: () => void; openPassword: () => void; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
-  const nav = profile.role === "admin" ? [["overview", "Visão geral", LayoutDashboard], ["feedback", "Retorno feedback", MessageCircle], ["forms", "Formulários", ClipboardCheck]] : [["checkin", "Check-in semanal", ClipboardCheck], ["evolution", "Minha evolução", BarChart3]];
+  const nav = profile.role === "admin" ? [["overview", "Visão geral", LayoutDashboard], ["patients", "Pacientes", Users], ["feedback", "Retorno feedback", MessageCircle], ["forms", "Formulários", ClipboardCheck]] : [["checkin", "Check-in semanal", ClipboardCheck], ["evolution", "Minha evolução", BarChart3]];
   return <div className="shell"><header className="mobileHeader"><Brand/><button className="iconButton swap" onClick={() => setOpen(!open)} aria-label="Menu"><Menu className={!open ? "shown" : "hidden"}/><X className={open ? "shown" : "hidden"}/></button></header><aside className={`sidebar ${open ? "open" : ""}`}><Brand/><nav><span>{profile.role === "admin" ? "GESTÃO" : "SEU ACOMPANHAMENTO"}</span>{nav.map(([id, label, Icon]) => <button key={String(id)} className={view === id ? "active" : ""} onClick={() => { setView(id as View); setOpen(false); }}><Icon size={20} strokeWidth={view === id ? 2.5 : 2}/>{String(label)}</button>)}</nav><div className="sideBottom"><button onClick={() => { openPassword(); setOpen(false); }}><Settings size={20}/>Alterar senha</button><button onClick={logout}><LogOut size={20}/>Sair</button><div className="profile"><i>{initials(profile.full_name)}</i><div><b>{profile.full_name}</b><small>{profile.role === "admin" ? "Administrador" : "Paciente"}</small></div></div></div></aside><section className="content">{children}</section></div>;
 }
 
@@ -359,6 +359,96 @@ function ResponseReview() {
   </section>;
 }
 
+function ManagePatients() {
+  const [patients, setPatients] = useState<Profile[]>([]);
+  const [active, setActive] = useState(true);
+  const [selected, setSelected] = useState<Profile | null>(null);
+  const [password, setPassword] = useState("");
+  const [askReset, setAskReset] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function loadPatients() {
+    if (!supabase) return;
+    const { data, error } = await supabase.from("profiles").select("id,full_name,email,phone,role,must_change_password,active")
+      .eq("role", "patient").order("full_name");
+    if (error) setMessage("Não foi possível carregar os pacientes.");
+    else setPatients(data as Profile[]);
+  }
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- The loader updates state after the remote query.
+    void loadPatients();
+  }, []);
+
+  async function update(action: "edit" | "reset" | "status") {
+    if (!selected || !supabase || busy) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const { data, error } = await supabase.functions.invoke("admin-manage-patient", {
+        body: { action, patientId: selected.id, name: selected.full_name, email: selected.email, phone: selected.phone, active: !selected.active },
+      });
+      if (error) {
+        const detail = error.context instanceof Response ? await error.context.json().catch(() => null) : null;
+        setMessage(detail?.error ?? "Não foi possível concluir a ação.");
+        return;
+      }
+      if (action === "reset") {
+        if (typeof data?.temporaryPassword !== "string") throw new Error();
+        setAskReset(false);
+        setPassword(data.temporaryPassword);
+      } else {
+        setSelected(null);
+        setMessage(action === "edit" ? "Cadastro atualizado." : selected.active ? "Paciente desativado." : "Paciente reativado.");
+      }
+      await loadPatients();
+    } catch {
+      setMessage("Não foi possível confirmar a operação. Atualize a lista antes de repetir.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const visible = patients.filter((patient) => patient.active === active);
+  return <div className="page narrow">
+    <PageTitle eyebrow="Gestão" title="Pacientes" text="Gerencie o cadastro e o acesso ao portal."/>
+    <div className="reviewNavigation" role="group" aria-label="Situação do paciente">
+      <button className={active ? "primary" : "secondary"} aria-pressed={active} onClick={() => setActive(true)}>Ativos</button>
+      <button className={!active ? "primary" : "secondary"} aria-pressed={!active} onClick={() => setActive(false)}>Inativos</button>
+    </div>
+    <div className="patientManageList formCard">
+      {visible.length === 0 && <p>Nenhum paciente nesta lista.</p>}
+      {visible.map((patient) => <div className="patientManageRow" key={patient.id}>
+        <div><strong>{patient.full_name}</strong><div>{patient.email}</div></div>
+        <button className="secondary" onClick={() => { setSelected(patient); setMessage(""); setPassword(""); setAskReset(false); }}>Gerenciar<span className="srOnly"> {patient.full_name}</span></button>
+      </div>)}
+    </div>
+    {!selected && <p role="status">{message}</p>}
+    {selected && <div className="modalBackdrop">
+      <form className="modalCard" aria-label="Gerenciar paciente" onSubmit={(event) => { event.preventDefault(); void update("edit"); }}>
+        <h2>{password ? "Nova senha temporária" : "Gerenciar paciente"}</h2>
+        {password ? <>
+          <label>Senha temporária<input readOnly value={password}/></label>
+          <button type="button" className="primary full" onClick={async () => {
+            try { await navigator.clipboard.writeText(password); setMessage("Senha copiada."); }
+            catch { setMessage("Selecione a senha para copiar manualmente."); }
+          }}>Copiar senha</button>
+        </> : <>
+          <label>Nome<input required maxLength={160} disabled={busy} value={selected.full_name} onChange={(event) => setSelected({ ...selected, full_name: event.target.value })}/></label>
+          <label>E-mail<input required type="email" disabled={busy} value={selected.email} onChange={(event) => setSelected({ ...selected, email: event.target.value })}/></label>
+          <label>Telefone<input required type="tel" disabled={busy} value={selected.phone ?? ""} onChange={(event) => setSelected({ ...selected, phone: event.target.value })}/></label>
+          <button className="primary full" disabled={busy}>Salvar cadastro</button>
+          <button type="button" className="secondary full" disabled={busy} onClick={() => void update("status")}>{selected.active ? "Desativar paciente" : "Reativar paciente"}</button>
+          {askReset && <p>A senha anterior deixará de funcionar e o paciente precisará trocar a senha temporária no próximo acesso.</p>}
+          <button type="button" className="secondary full" disabled={busy} onClick={() => askReset ? void update("reset") : setAskReset(true)}>{askReset ? "Confirmar redefinição" : "Redefinir senha"}</button>
+        </>}
+        {!!message && <p role="status">{message}</p>}
+        <button type="button" className="secondary full" disabled={busy} onClick={() => { setSelected(null); setPassword(""); setMessage(""); }}>Fechar</button>
+      </form>
+    </div>}
+  </div>;
+}
+
 function AdminOverview({ goForms }: { goForms: () => void }) {
   const [search, setSearch] = useState("");
   const [patients, setPatients] = useState<Profile[]>([]), [assignments, setAssignments] = useState<Array<{ patient_id: string; status: string; completed_at: string | null }>>([]), [showPatient, setShowPatient] = useState(false), [refresh, setRefresh] = useState(0);
@@ -396,9 +486,9 @@ function Forms({ profile }: { profile: Profile }) {
 export default function Home() {
   const [editingPassword, setEditingPassword] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null), [view, setView] = useState<View>("checkin"), [booting, setBooting] = useState(true), [error, setError] = useState("");
-  const hydrate = useCallback(async (userId: string) => { if (!supabase) return; const { data, error: profileError } = await supabase.from("profiles").select("id,full_name,email,phone,role,must_change_password,active").eq("id", userId).single(); if (profileError || !data) { setError("Seu perfil ainda não foi configurado."); return; } const next = data as Profile; setProfile(next); setView(next.role === "admin" ? "overview" : "checkin"); }, []);
+  const hydrate = useCallback(async (userId: string) => { if (!supabase) return; const { data, error: profileError } = await supabase.from("profiles").select("id,full_name,email,phone,role,must_change_password,active").eq("id", userId).single(); if (profileError || !data) { setError("Seu perfil ainda não foi configurado."); return; } const next = data as Profile; if (!next.active) { await signOut(); setError("Este cadastro está inativo. Entre em contato com seu nutricionista."); return; } setError(""); setProfile(next); setView(next.role === "admin" ? "overview" : "checkin"); }, []);
   useEffect(() => { async function start() { if (!supabase) { setBooting(false); return; } const { data } = await supabase.auth.getSession(); if (data.session?.user) await hydrate(data.session.user.id); setBooting(false); } void start(); }, [hydrate]);
   async function logout() { await signOut(); setProfile(null); setError(""); }
-  const content = useMemo(() => { if (!profile) return null; if (view === "evolution") return <Evolution profile={profile}/>; if (profile.role === "admin") return view === "forms" ? <Forms profile={profile}/> : view === "feedback" ? <ResponseReview/> : <AdminOverview goForms={() => setView("forms")}/>; return <PatientCheckin profile={profile}/>; }, [profile, view]);
+  const content = useMemo(() => { if (!profile) return null; if (view === "evolution") return <Evolution profile={profile}/>; if (profile.role === "admin") return view === "patients" ? <ManagePatients/> : view === "forms" ? <Forms profile={profile}/> : view === "feedback" ? <ResponseReview/> : <AdminOverview goForms={() => setView("forms")}/>; return <PatientCheckin profile={profile}/>; }, [profile, view]);
   if (booting) return <Loading/>; if (!profile) return <><Login onSuccess={hydrate}/>{error && <div className="globalError">{error}</div>}</>; return <Shell profile={profile} view={view} setView={setView} logout={logout} openPassword={() => setEditingPassword(true)}>{content}{(profile.must_change_password || editingPassword) && <PasswordDialog profile={profile} onClose={profile.must_change_password ? undefined : () => setEditingPassword(false)} onDone={() => { setProfile({ ...profile, must_change_password: false }); setEditingPassword(false); }}/>}</Shell>;
 }
